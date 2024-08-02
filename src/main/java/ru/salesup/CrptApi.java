@@ -71,6 +71,7 @@ public class CrptApi {
                         .POST(ofString(new ObjectMapper().writeValueAsString(object)))
                         .build();
                 response = client.send(request, HttpResponse.BodyHandlers.ofString());
+                requestResult = RequestResult.SUCCESS;
                 log.info("Запрос на создание документа отправлен успешно. Object={}", object.toString());
             } catch (JsonProcessingException e) {
                 log.warn("Ошибка сериализации запроса", e);
