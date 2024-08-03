@@ -21,11 +21,20 @@ import java.util.concurrent.*;
 
 import static java.net.http.HttpRequest.BodyPublishers.ofString;
 
+/**
+ * Вопросы по заданию (формы для вопросов к сожалению в анкете предусмотрено не было)
+ * 1. Непонятно как должен отвечать сервис - сделал только fastFail на случай переполнения очереди.
+ * 2. Задачу по расписанию я бы конечно делал через Spring, но из описания задачи не вполне понятно, можно ли его использовать.
+ * 3. Т.к. не было сказано какой должен быть размер очереди - сейчас может улететь в OOM. В прод такое пускать нельзя.
+ * 4. Проверить конкретно метод ЧЗ не получилось - требует авторизацию. Так и задумано?
+ * 5. Стоит ли при ошибке ответа от ЧЗ возвращать запрос в очередь?
+ */
+
 @Slf4j
 public class CrptApi {
 
     private final ExecutorService threadPool = Executors.newCachedThreadPool();
-    private final BlockingQueue<RequestTask> queue = new LinkedBlockingQueue<>(); // В реальном приложении это поедет в Кафку
+    private final BlockingQueue<RequestTask> queue = new LinkedBlockingQueue<>(); // В реальном приложении наверное есть смысл это в Кафку отправлять
 
     @Getter
     private final Set<SentRequestData> sentRequests = Collections.synchronizedSet(new HashSet<>()); // Конечно, это все в БД
