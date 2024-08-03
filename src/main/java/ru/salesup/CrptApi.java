@@ -53,7 +53,9 @@ public class CrptApi {
                                 .ifPresent(threadPool::submit);
                     }
                     var millisToSleep = temporalUnit.getDuration().toMillis() - (System.currentTimeMillis() - timeBefore);
-                    if (millisToSleep > 0) TimeUnit.MILLISECONDS.sleep(millisToSleep);
+                    if (millisToSleep > 0) {
+                        TimeUnit.MILLISECONDS.sleep(millisToSleep);
+                    }
                 } catch (InterruptedException e) {
                     log.error("Выполнение приложения прервано", e);
                     throw new RuntimeException(e);
@@ -62,15 +64,23 @@ public class CrptApi {
         }).start();
     }
 
+    /**
+     * Отправить документ с подписью в ЧЗ
+     *
+     * @param object Объект для отправки в ЧЗ
+     * @param sign   Подпись
+     * @return true если запрос принят в работу, false если нет
+     */
     public boolean sendDocument(BodyObject object, String sign) {
         Objects.requireNonNull(object);
         Objects.requireNonNull(sign);
 
-        var result = queue.offer(new RequestTask(object, sign));
-        if (result)
+        boolean result = queue.offer(new RequestTask(object, sign));
+        if (result) {
             log.info("Получен запрос отправки документа object={}, sign={}", object, sign);
-        else
+        } else {
             log.warn("Невозможно принять документ в обработку queueSize={}, object={}, sign={}", queue.size(), object, sign);
+        }
         return result;
     }
 
@@ -83,7 +93,7 @@ public class CrptApi {
         @Override
         public void run() {
             var requestResult = RequestResult.FAILED;
-            Object response = null;
+            Object response = null; // Конечно, запрос должен возвращать какую-то модельку, но контракта нет, поэтому импровизировал
             try {
                 var request = HttpRequest.newBuilder()
                         .uri(URI.create(url + "?sign=" + sign))
@@ -98,7 +108,7 @@ public class CrptApi {
             } catch (InterruptedException | IOException e) {
                 log.warn("Ошибка отправки запроса в ЧЗ", e);
             } catch (Exception e) {
-                log.warn("Ошибка выполнения запроса в ЧЗ", e);
+                log.warn("Неизвестная ошибка выполнения запроса в ЧЗ", e);
             } finally {
                 sentRequests.add(new SentRequestData(LocalDateTime.now(), object, requestResult, response));
             }
