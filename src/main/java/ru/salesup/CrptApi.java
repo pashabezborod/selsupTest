@@ -15,23 +15,17 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.LocalDateTime;
-import java.time.temporal.TemporalUnit;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.*;
 
 import static java.net.http.HttpRequest.BodyPublishers.ofString;
 
 @Slf4j
-@RequiredArgsConstructor
 public class CrptApi {
 
-    private final Integer requestLimit;
-    private final TemporalUnit temporalUnit;
-    private final ReentrantLock lock = new ReentrantLock(true);
     private final ExecutorService threadPool = Executors.newCachedThreadPool();
+    private final BlockingQueue<RequestTask> queue = new LinkedBlockingQueue<>(); // В реальном приложении это поедет в Кафку
 
     @Getter
     private final Set<SentRequestData> sentRequests = Collections.synchronizedSet(new HashSet<>()); // Конечно, это все в БД
@@ -40,16 +34,44 @@ public class CrptApi {
     @Setter
     private HttpClient client = HttpClient.newHttpClient(); // Нужны настройки авторизации/аутентификации
 
-    public void sendDocument(BodyObject object, String sign) {
-        log.info("Получен запрос отправки документа object={}, sign={}", object, sign);
-        threadPool.submit(new RequestTask(object, sign));
+    /**
+     * @param requestLimit Допустимое количество запросов в одну единицу времени (temporalUnit). Должно быть >= 0
+     * @param temporalUnit Единица времени
+     */
+    public CrptApi(Integer requestLimit, ChronoUnit temporalUnit) {
+        Objects.requireNonNull(temporalUnit);
+        if (Objects.requireNonNull(requestLimit) < 1)
+            throw new IllegalArgumentException(String.format(
+                    "Невалидное значение лимита запросов (%s). Должно быть положительное число",
+                    requestLimit));
+        new Thread(() -> {
+            while (true) {
+                try {
+                    var timeBefore = System.currentTimeMillis();
+                    for (int i = 0; i < requestLimit; i++) {
+                        Optional.ofNullable(queue.poll(1, TimeUnit.of(temporalUnit)))
+                                .ifPresent(threadPool::submit);
+                    }
+                    var millisToSleep = temporalUnit.getDuration().toMillis() - (System.currentTimeMillis() - timeBefore);
+                    if (millisToSleep > 0) TimeUnit.MILLISECONDS.sleep(millisToSleep);
+                } catch (InterruptedException e) {
+                    log.error("Выполнение приложения прервано", e);
+                    throw new RuntimeException(e);
+                }
+            }
+        }).start();
     }
 
-    private boolean checkCanSendRequest() {
-        var fromTime = LocalDateTime.now().minus(1, temporalUnit);
-        return sentRequests.stream()
-                .filter(it -> it.dateTime().isAfter(fromTime))
-                .count() < requestLimit;
+    public boolean sendDocument(BodyObject object, String sign) {
+        Objects.requireNonNull(object);
+        Objects.requireNonNull(sign);
+
+        var result = queue.offer(new RequestTask(object, sign));
+        if (result)
+            log.info("Получен запрос отправки документа object={}, sign={}", object, sign);
+        else
+            log.warn("Невозможно принять документ в обработку queueSize={}, object={}, sign={}", queue.size(), object, sign);
+        return result;
     }
 
     @RequiredArgsConstructor
@@ -63,8 +85,6 @@ public class CrptApi {
             var requestResult = RequestResult.FAILED;
             Object response = null;
             try {
-                lock.lock();
-                while (!checkCanSendRequest()) TimeUnit.MILLISECONDS.sleep(100);
                 var request = HttpRequest.newBuilder()
                         .uri(URI.create(url + "?sign=" + sign))
                         .header("Content-type", "application/json")
@@ -77,9 +97,10 @@ public class CrptApi {
                 log.warn("Ошибка сериализации запроса", e);
             } catch (InterruptedException | IOException e) {
                 log.warn("Ошибка отправки запроса в ЧЗ", e);
+            } catch (Exception e) {
+                log.warn("Ошибка выполнения запроса в ЧЗ", e);
             } finally {
                 sentRequests.add(new SentRequestData(LocalDateTime.now(), object, requestResult, response));
-                lock.unlock();
             }
         }
     }

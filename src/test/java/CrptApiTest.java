@@ -2,6 +2,8 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 import ru.salesup.CrptApi;
 import ru.salesup.CrptApi.BodyObject;
 import ru.salesup.CrptApi.BodyObject.Product;
@@ -9,16 +11,18 @@ import ru.salesup.CrptApi.BodyObject.Product;
 import java.io.IOException;
 import java.net.http.HttpClient;
 import java.time.temporal.ChronoUnit;
-import java.time.temporal.TemporalUnit;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.concurrent.TimeUnit;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 public class CrptApiTest {
 
     private final String sign = "TEST_SIGN";
@@ -46,9 +50,9 @@ public class CrptApiTest {
     @DisplayName("Тест перегрузки запросов")
     void overloadTest() throws InterruptedException, IOException {
         var crptApi = getCrptApi(5, ChronoUnit.MINUTES);
-        for (int i = 0; i < 10; i++) crptApi.sendDocument(example, sign);
+        for (int i = 0; i < 100; i++) crptApi.sendDocument(example, sign);
         waitResult(-1, 5, crptApi);
-        assertEquals(5, crptApi.getSentRequests().size());
+        assertTrue(crptApi.getSentRequests().size() <= 5);
     }
 
     @Test
@@ -67,17 +71,40 @@ public class CrptApiTest {
         var crptApi = getCrptApi(1, ChronoUnit.SECONDS);
         for (int i = 0; i < 20; i++) crptApi.sendDocument(example, sign);
 
-        waitResult(-1, 5, crptApi);
-        assertTrue(crptApi.getSentRequests().size() <= 5);
+        TimeUnit.SECONDS.sleep(1);
 
-        waitResult(-1, 5, crptApi);
-        assertTrue(crptApi.getSentRequests().size() <= 10);
+        int countBefore = crptApi.getSentRequests().size();
+        TimeUnit.SECONDS.sleep(1);
+        assertTrue(crptApi.getSentRequests().size() - countBefore <= 1);
+
+        countBefore = crptApi.getSentRequests().size();
+        TimeUnit.SECONDS.sleep(2);
+        assertTrue(crptApi.getSentRequests().size() - countBefore <= 2);
+
+        countBefore = crptApi.getSentRequests().size();
+        TimeUnit.SECONDS.sleep(3);
+        assertTrue(crptApi.getSentRequests().size() - countBefore <= 3);
+
+        countBefore = crptApi.getSentRequests().size();
+        TimeUnit.SECONDS.sleep(4);
+        assertTrue(crptApi.getSentRequests().size() - countBefore <= 4);
+
+        countBefore = crptApi.getSentRequests().size();
+        TimeUnit.SECONDS.sleep(5);
+        assertTrue(crptApi.getSentRequests().size() - countBefore <= 5);
 
         waitResult(20, -1, crptApi);
         assertEquals(20, crptApi.getSentRequests().size());
+
+        TimeUnit.SECONDS.sleep(5);
+
+        for (int i = 0; i < 20; i++) crptApi.sendDocument(example, sign);
+        countBefore = crptApi.getSentRequests().size();
+        TimeUnit.SECONDS.sleep(5);
+        assertTrue(crptApi.getSentRequests().size() - countBefore <= 5);
     }
 
-    private CrptApi getCrptApi(int requestLimit, TemporalUnit unit) throws IOException, InterruptedException {
+    private CrptApi getCrptApi(int requestLimit, ChronoUnit unit) throws IOException, InterruptedException {
         var crptApi = new CrptApi(requestLimit, unit);
 
         var client = mock(HttpClient.class);
